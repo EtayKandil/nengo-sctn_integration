@@ -191,6 +191,8 @@ class SCTNNeuronType(NeuronType):
                 temp_pn_gen = (temp_pn_gen >> 1) | (new_msb << 14)
                 temp_pn_gen &= 0x7FFF
 
+
+            sum_for_sigmoid-=32768
             pn_generator_state_arr[:] = temp_pn_gen
             rand_gauss_var_state_arr[:] = sum_for_sigmoid
             emit_spike_flags[:] = voltage_arr > rand_gauss_var_state_arr
@@ -322,8 +324,8 @@ class SCTNNeuronType(NeuronType):
             J_nef_search_min_default = -65000
             J_nef_search_max_default = 65000
         else:  # SIGMOID or other (generic, needs tuning)
-            J_nef_search_min_default = 5000
-            J_nef_search_max_default =100000
+            J_nef_search_min_default = -100000
+            J_nef_search_max_default =-10000000
 
         print(
             f"  gain_bias: Using J_nef search range approx [{J_nef_search_min_default:.2f}, {J_nef_search_max_default:.2f}] "
@@ -408,28 +410,27 @@ class SCTNNeuronType(NeuronType):
 
 
 # --- Main script ---
+# --- Main script ---
+# --- Main script ---
+# --- Main script ---
 if __name__ == "__main__":
-    print("Starting Nengo SCTNNeuronType CUSTOM gain_bias test script...")
+    print("Starting Nengo SCTNNeuronType SIGMOID diagnostic script with J_nef probe...")
 
-    n_neurons_test = 10  # Keep low for initial slow tests
+    n_neurons_test = 5
     dimensions_test = 1
-    sim_duration = 1.0
-    dt_model = 0.001
+    sim_duration = 1.0  # s
+    dt_model = 0.001  # s
+    # num_timesteps = int(sim_duration / dt_model) # Not explicitly needed here
 
     # --- CHOOSE ACTIVATION TO TEST ---
-    sctn_activation = "SIGMOID"
-    # sctn_activation = "BINARY"
-    # sctn_activation = "SIGMOID"
+    sctn_activation = "IDENTITY"
 
-    sctn_theta = 500
+    sctn_theta = 0.05
     sctn_leakage_factor = 2
-    sctn_leakage_period = 15
-    sctn_threshold_pulse = 500
-    sctn_identity_const = 3000  # Keep this from your last test, but remember search range needs tuning
-
-    if sctn_activation == "IDENTITY":
-        print(f"Note: For IDENTITY, identity_const is {sctn_identity_const}. ")
-        print("Ensure J_nef_search_range in gain_bias is appropriate (VERY LIKELY NEEDS MANUAL TUNING).")
+    sctn_leakage_period = 5
+    sctn_threshold_pulse = 0.5
+    sctn_identity_const = 10.0
+    sctn_gaussian_rand_order = 8
 
     sctn_neuron_params = SCTNNeuronType(
         activation_function=sctn_activation,
@@ -437,37 +438,112 @@ if __name__ == "__main__":
         leakage_factor=sctn_leakage_factor,
         leakage_period=int(sctn_leakage_period),
         threshold_pulse=sctn_threshold_pulse,
-        identity_const=sctn_identity_const
+        identity_const=sctn_identity_const,
+        gaussian_rand_order=sctn_gaussian_rand_order
     )
     print(f"Using SCTNNeuronType with: {sctn_activation}, theta={sctn_theta}, "
-          f"lk_factor={sctn_leakage_factor}, lk_period={int(sctn_leakage_period)}")
-    if sctn_activation == "BINARY": print(f"  threshold_pulse={sctn_threshold_pulse}")
-    if sctn_activation == "IDENTITY": print(f"  identity_const={sctn_identity_const}")
+          f"lk_factor={sctn_leakage_factor}, lk_period={int(sctn_leakage_period)}, "
+          f"gauss_order={sctn_gaussian_rand_order}")
 
-    with nengo.Network(label="SCTN Custom GainBias Test", seed=32) as model:
+    with nengo.Network(label="SCTN Sigmoid J_nef Test", seed=34) as model:  # Updated seed for new test run
         input_node = nengo.Node(lambda t: (2 * t / sim_duration) - 1 if t < sim_duration else 0)
+
         sctn_ensemble = nengo.Ensemble(
             n_neurons=n_neurons_test,
             dimensions=dimensions_test,
             neuron_type=sctn_neuron_params,
             max_rates=Uniform(50, 100),
             intercepts=Uniform(-0.8, 0.8),
-            seed=44
+            seed=46  # Updated seed
         )
         nengo.Connection(input_node, sctn_ensemble, synapse=None)
-        sctn_filtered_probe = nengo.Probe(sctn_ensemble.neurons, synapse=0.03)
 
-    print("\nBuilding the Nengo simulator (with custom gain_bias, potentially SLOW)...")
+        # --- Probes for SIGMOID diagnostics ---
+        input_stim_probe = nengo.Probe(input_node, synapse=None)  # The x(t) stimulus
+        # Probe the 'input' to the neurons, which is J_nef = gain*(encoder*x) + bias_nef
+        sctn_Jnef_probe = nengo.Probe(sctn_ensemble.neurons, "input", synapse=None)
+        sctn_voltage_probe = nengo.Probe(sctn_ensemble.neurons, "voltage", synapse=None)
+        sctn_rand_gauss_var_probe = nengo.Probe(sctn_ensemble.neurons, "rand_gauss_var_state", synapse=None)
+        sctn_spikes_probe = nengo.Probe(sctn_ensemble.neurons, "output", synapse=None)
+        sctn_filtered_activity = nengo.Probe(sctn_ensemble.neurons, synapse=0.01)
+
+    print("\nBuilding the Nengo simulator (with custom gain_bias for SIGMOID)...")
     start_time = time.time()
     try:
-        with nengo.Simulator(model, dt=dt_model, seed=52) as sim:
+        with nengo.Simulator(model, dt=dt_model, seed=54) as sim:  # Updated seed
             build_time = time.time() - start_time
             print(f"Simulator build time: {build_time:.4f} seconds")
             print(f"Running simulation for {sim_duration} seconds...")
             sim.run(sim_duration)
             print("Simulation complete.")
 
-            print("Generating and plotting response curves...")
+            # --- Plotting probed data ---
+            print("Plotting probed data for SIGMOID activation...")
+            # Increased figure height to accommodate the new J_nef plot
+            fig, axs = plt.subplots(6, 1, figsize=(12, 15), sharex=True)
+
+            axs[0].plot(sim.trange(), sim.data[input_stim_probe], label="Input Stimulus x(t)")
+            axs[0].set_title("Input Stimulus x(t)")
+            axs[0].set_ylabel("Value")
+            axs[0].legend()
+            axs[0].grid(True)
+
+            axs[1].plot(sim.trange(), sim.data[sctn_Jnef_probe])
+            axs[1].set_title(f"Neuron Input Current J_nef (gain*enc*x + bias_nef) (N={n_neurons_test})")
+            axs[1].set_ylabel("Current J_nef")
+            axs[1].grid(True)
+
+            axs[2].plot(sim.trange(), sim.data[sctn_voltage_probe])
+            axs[2].set_title(f"Neuron Voltages (SIGMOID, N={n_neurons_test})")
+            axs[2].set_ylabel("Voltage")
+            axs[2].grid(True)
+
+            axs[3].plot(sim.trange(), sim.data[sctn_rand_gauss_var_probe])
+            axs[3].set_title("Neuron rand_gauss_var_state (Shifted Threshold)")
+            axs[3].set_ylabel("Shifted Threshold")
+            axs[3].grid(True)
+
+            axs[4].plot(sim.trange(), sim.data[sctn_filtered_activity])
+            axs[4].set_title("Neuron Filtered Output Activity")
+            axs[4].set_ylabel("Filtered Activity (Hz)")
+            axs[4].grid(True)
+            if not np.any(sim.data[sctn_spikes_probe] > 0):
+                print("SIGMOID (with J_nef probe): NO Spikes detected during simulation.")
+            else:
+                print("SIGMOID (with J_nef probe): Spikes were detected!")
+
+            # --- Histogram of rand_gauss_var_state ---
+            rand_gauss_data = sim.data[sctn_rand_gauss_var_probe].flatten()
+            mean_rgv = np.mean(rand_gauss_data)
+            std_rgv = np.std(rand_gauss_data)
+            min_rgv = np.min(rand_gauss_data)
+            max_rgv = np.max(rand_gauss_data)
+
+            print(f"\nStatistics for SHIFTED rand_gauss_var_state (thresholds):")
+            print(f"  Mean: {mean_rgv:.2f}")
+            print(f"  Std Dev: {std_rgv:.2f}")
+            print(f"  Min: {min_rgv:.2f}")
+            print(f"  Max: {max_rgv:.2f}")
+
+            axs[5].hist(rand_gauss_data, bins=50, density=True, alpha=0.7, label='Shifted Threshold')
+            from scipy.stats import norm  # Keep this import local if only used here
+
+            xmin_hist, xmax_hist = axs[5].get_xlim()  # Use axis limits for PDF plotting range
+            x_pdf = np.linspace(xmin_hist, xmax_hist, 100)
+            p_pdf = norm.pdf(x_pdf, mean_rgv, std_rgv)
+            axs[5].plot(x_pdf, p_pdf, 'k', linewidth=2, label=f'Gaussian PDF Fit')
+            axs[5].set_title(f"Histogram of Shifted Threshold (mean={mean_rgv:.1f}, std={std_rgv:.1f})")
+            axs[5].set_xlabel("Value of Shifted Threshold")
+            axs[5].set_ylabel("Density")
+            axs[5].legend()
+            axs[5].grid(True)
+            axs[5].set_xlabel("Time (s)")  # Common x-axis label
+
+            plt.tight_layout()
+            plt.show()
+
+            # Response curve plot (still useful to see what gain_bias did)
+            print("Generating and plotting response curves for SIGMOID...")
             plt.figure(figsize=(12, 8))
             eval_points, activities = nengo.utils.ensemble.tuning_curves(sctn_ensemble, sim)
             plt.plot(eval_points, activities, lw=1.5)
@@ -475,10 +551,9 @@ if __name__ == "__main__":
             plt.xlabel("Input Stimulus (x)")
             plt.ylabel("Firing Rate (Hz)")
             plt.grid(True)
+            # ... (fig_text_str and other plot details remain the same) ...
             fig_text_str = (f"Build: {build_time:.2f}s. N={n_neurons_test}. Act: {sctn_activation}, "
                             f"theta: {sctn_theta}, lk_f: {sctn_leakage_factor}, lk_p: {int(sctn_leakage_period)}")
-            if sctn_activation == "BINARY": fig_text_str += f", thr: {sctn_threshold_pulse}"
-            if sctn_activation == "IDENTITY": fig_text_str += f", id_c: {sctn_identity_const}"
             plt.figtext(0.5, 0.01, fig_text_str, wrap=True, horizontalalignment='center', fontsize=8)
             plt.tight_layout(rect=[0, 0.05, 1, 1])
             plt.show()
@@ -495,10 +570,10 @@ if __name__ == "__main__":
 
         traceback.print_exc()
 
-    print("\n--- Test Script Finished ---")
-    print("What to check with CUSTOM gain_bias (and longer sim times for rate calcs):")
-    print("1. Build Time: Expect it to be significantly longer now.")
-    print("2. Warnings from gain_bias: Do they change? Does brentq succeed more often if ranges are better?")
-    print("3. Response Curves Plot (especially for IDENTITY):")
-    print("   - Does the F-I curve characterization improve, leading to more meaningful curves?")
-    print("   - Are intercepts and max_rates now achieved more accurately?")
+    print("\n--- SIGMOID Diagnostic Script with J_nef probe Finished ---")
+    print("What to check:")
+    print("1. J_nef Plot: What are the values of J_nef? Are they mostly positive, negative, or small?")
+    print("2. Voltages: How do they behave now, in relation to J_nef and theta?")
+    print("3. Shifted Threshold (RandGaussVarState): Confirm its mean is near zero.")
+    print("4. Output Activity: Any spikes now? Compare voltages to the shifted thresholds.")
+    print("5. Response Curves: Any improvement?")

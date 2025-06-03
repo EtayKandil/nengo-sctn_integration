@@ -153,7 +153,8 @@ class SCTNNeuronType(NeuronType):
                 new_msb = feedback_bit_14 ^ feedback_bit_0
                 temp_pn_gen = (temp_pn_gen >> 1) | (new_msb << 14)
                 temp_pn_gen &= 0x7FFF
-
+            sum_for_sigmoid-=32768
+            sum_for_sigmoid/=8
             pn_generator_state_arr[:] = temp_pn_gen
             rand_gauss_var_state_arr[:] = sum_for_sigmoid
             emit_spike_flags[:] = voltage_arr > rand_gauss_var_state_arr
@@ -236,13 +237,13 @@ if __name__ == "__main__":
         leakage_period=test_leakage_period,
         amplitude=test_amplitude
     )
-    print(f"Testing Neuron: IDENTITY, id_const={test_identity_const}, theta={test_theta}")
+    print(f"Testing Neuron: sigmoid, id_const={test_identity_const}, theta={test_theta}")
 
     # --- Define J_nef range based on identity_const ---
     # This is the wide range you requested for exploration
-    min_J_nef =0
-    max_J_nef = 2500
-    num_J_points = 1000  # Number of current levels to test (reduce if too slow)
+    min_J_nef =-1
+    max_J_nef = 1
+    num_J_points = 100  # Number of current levels to test (reduce if too slow)
 
     # If identity_const is very small (e.g. 0), the range above might be too small or zero.
     if abs(max_J_nef - min_J_nef) < 1.0:  # If range is too small, use a default range

@@ -191,6 +191,8 @@ class SCTNNeuronType(NeuronType):
                 temp_pn_gen = (temp_pn_gen >> 1) | (new_msb << 14)
                 temp_pn_gen &= 0x7FFF
 
+
+            sum_for_sigmoid-=32768
             pn_generator_state_arr[:] = temp_pn_gen
             rand_gauss_var_state_arr[:] = sum_for_sigmoid
             emit_spike_flags[:] = voltage_arr > rand_gauss_var_state_arr
@@ -322,8 +324,8 @@ class SCTNNeuronType(NeuronType):
             J_nef_search_min_default = -65000
             J_nef_search_max_default = 65000
         else:  # SIGMOID or other (generic, needs tuning)
-            J_nef_search_min_default = 5000
-            J_nef_search_max_default =100000
+            J_nef_search_min_default = -100000
+            J_nef_search_max_default =-10000000
 
         print(
             f"  gain_bias: Using J_nef search range approx [{J_nef_search_min_default:.2f}, {J_nef_search_max_default:.2f}] "
@@ -408,97 +410,157 @@ class SCTNNeuronType(NeuronType):
 
 
 # --- Main script ---
+# --- Main script ---
+# --- Main script ---
+# --- Main script ---
 if __name__ == "__main__":
-    print("Starting Nengo SCTNNeuronType CUSTOM gain_bias test script...")
+    print("Starting Nengo SCTNNeuronType sin(exp(x)) test script...")
 
-    n_neurons_test = 10  # Keep low for initial slow tests
-    dimensions_test = 1
-    sim_duration = 1.0
+    # --- Parameters ---
+    n_neurons_lif = 200  # For representing x(t) accurately
+    n_neurons_sctn = 200  # For representing exp(x(t)) with SCTN
+    sim_duration = 4.0  # Simulate for a few cycles of input
     dt_model = 0.001
+    input_freq = 0.5  # Hz for the input x(t)
+    input_amplitude = 2.0  # x(t) will range from -2 to +2
 
-    # --- CHOOSE ACTIVATION TO TEST ---
-    sctn_activation = "SIGMOID"
-    # sctn_activation = "BINARY"
-    # sctn_activation = "SIGMOID"
-
-    sctn_theta = 500
-    sctn_leakage_factor = 2
-    sctn_leakage_period = 15
-    sctn_threshold_pulse = 500
-    sctn_identity_const = 3000  # Keep this from your last test, but remember search range needs tuning
-
-    if sctn_activation == "IDENTITY":
-        print(f"Note: For IDENTITY, identity_const is {sctn_identity_const}. ")
-        print("Ensure J_nef_search_range in gain_bias is appropriate (VERY LIKELY NEEDS MANUAL TUNING).")
+    sctn_activation = "BINARY"
+    sctn_theta = 0.05
+    sctn_leakage_factor = 2  # No lf_scale
+    sctn_leakage_period = 5
+    sctn_threshold_pulse = 0.5  # Crucial for BINARY activation
+    # identity_const is not used by BINARY
+    # gaussian_rand_order is not used by BINARY
 
     sctn_neuron_params = SCTNNeuronType(
         activation_function=sctn_activation,
         theta=sctn_theta,
         leakage_factor=sctn_leakage_factor,
         leakage_period=int(sctn_leakage_period),
-        threshold_pulse=sctn_threshold_pulse,
-        identity_const=sctn_identity_const
+        threshold_pulse=sctn_threshold_pulse
     )
-    print(f"Using SCTNNeuronType with: {sctn_activation}, theta={sctn_theta}, "
-          f"lk_factor={sctn_leakage_factor}, lk_period={int(sctn_leakage_period)}")
-    if sctn_activation == "BINARY": print(f"  threshold_pulse={sctn_threshold_pulse}")
-    if sctn_activation == "IDENTITY": print(f"  identity_const={sctn_identity_const}")
+    print(f"Using SCTNNeuronType: {sctn_activation}, theta={sctn_theta}, thr_pulse={sctn_threshold_pulse}")
 
-    with nengo.Network(label="SCTN Custom GainBias Test", seed=32) as model:
-        input_node = nengo.Node(lambda t: (2 * t / sim_duration) - 1 if t < sim_duration else 0)
-        sctn_ensemble = nengo.Ensemble(
-            n_neurons=n_neurons_test,
-            dimensions=dimensions_test,
-            neuron_type=sctn_neuron_params,
-            max_rates=Uniform(50, 100),
-            intercepts=Uniform(-0.8, 0.8),
-            seed=44
+    # --- Model Definition ---
+    with nengo.Network(label="SCTN sin(exp(x)) Test", seed=100) as model:
+        # 1. Input x(t)
+        x_input_node = nengo.Node(lambda t: input_amplitude * np.sin(input_freq * 2 * np.pi * t))
+
+        # 2. Ensemble to represent x(t) using LIF neurons
+        ensemble_x = nengo.Ensemble(
+            n_neurons_lif,
+            dimensions=1,
+            radius=input_amplitude,  # Represents values from -2 to 2
+            label="ensemble_x (LIF)"
         )
-        nengo.Connection(input_node, sctn_ensemble, synapse=None)
-        sctn_filtered_probe = nengo.Probe(sctn_ensemble.neurons, synapse=0.03)
+        nengo.Connection(x_input_node, ensemble_x, synapse=None)
 
-    print("\nBuilding the Nengo simulator (with custom gain_bias, potentially SLOW)...")
+        # 3. SCTN Ensemble to represent exp(x(t))
+        # Range of exp(x) for x in [-2, 2] is [exp(-2)=0.135, exp(2)=7.39]
+        exp_x_radius = 8.0  # Choose radius to comfortably cover this range
+
+        sctn_ensemble_exp_x = nengo.Ensemble(
+            n_neurons_sctn,
+            dimensions=1,
+            neuron_type=sctn_neuron_params,
+            radius=exp_x_radius,
+            # max_rates and intercepts for SCTN ensemble will be set by its gain_bias
+            max_rates=Uniform(80, 150),  # Give it a good range of rates
+            intercepts=Uniform(-0.8, 0.8),
+            label="sctn_ensemble_exp_x (SCTN BINARY)"
+        )
+        # Connection to compute exp(x)
+        nengo.Connection(ensemble_x, sctn_ensemble_exp_x, function=lambda x_val: np.exp(x_val), synapse=0.005)
+
+        # 4. Decode sin(exp(x)) from the SCTN ensemble
+        # The sctn_ensemble_exp_x represents y = exp(x). We want to compute sin(y).
+        output_node = nengo.Node(size_in=1, label="decoded_sin(exp(x))")
+        nengo.Connection(sctn_ensemble_exp_x, output_node, function=lambda y_val: np.sin(y_val), synapse=0.02)
+
+        # --- Probes ---
+        p_x_input = nengo.Probe(x_input_node, synapse=None)
+        p_ensemble_x_decoded = nengo.Probe(ensemble_x, synapse=0.02)  # Decoded x(t)
+        p_sctn_ens_represented_exp_x = nengo.Probe(sctn_ensemble_exp_x, synapse=0.02)  # Decoded exp(x(t))
+        p_final_decoded_output = nengo.Probe(output_node, synapse=None)
+        p_sctn_spikes = nengo.Probe(sctn_ensemble_exp_x.neurons, 'output', synapse=None)  # Optional
+
+    # --- Simulation ---
+    print("\nBuilding and Simulating the Nengo network...")
     start_time = time.time()
     try:
-        with nengo.Simulator(model, dt=dt_model, seed=52) as sim:
+        with nengo.Simulator(model, dt=dt_model, seed=101) as sim:
             build_time = time.time() - start_time
             print(f"Simulator build time: {build_time:.4f} seconds")
             print(f"Running simulation for {sim_duration} seconds...")
             sim.run(sim_duration)
             print("Simulation complete.")
 
-            print("Generating and plotting response curves...")
-            plt.figure(figsize=(12, 8))
-            eval_points, activities = nengo.utils.ensemble.tuning_curves(sctn_ensemble, sim)
-            plt.plot(eval_points, activities, lw=1.5)
-            plt.title(f"Response Curves for SCTN Ensemble (Custom gain_bias, {sctn_activation})")
-            plt.xlabel("Input Stimulus (x)")
-            plt.ylabel("Firing Rate (Hz)")
+            # --- Plotting Results ---
+            print("Plotting results...")
+
+            # Calculate ideal signals
+            x_ideal = sim.data[p_x_input]
+            exp_x_ideal = np.exp(x_ideal)
+            sin_exp_x_ideal = np.sin(exp_x_ideal)
+
+            plt.figure(figsize=(14, 10))
+
+            plt.subplot(3, 1, 1)
+            plt.plot(sim.trange(), x_ideal, label="Input x(t) (Ideal)", color='k', lw=2)
+            plt.plot(sim.trange(), sim.data[p_ensemble_x_decoded], label="Decoded from ensemble_x", color='gray',
+                     ls='--')
+            plt.title("Input Signal x(t) and its Representation")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Value")
+            plt.legend()
             plt.grid(True)
-            fig_text_str = (f"Build: {build_time:.2f}s. N={n_neurons_test}. Act: {sctn_activation}, "
-                            f"theta: {sctn_theta}, lk_f: {sctn_leakage_factor}, lk_p: {int(sctn_leakage_period)}")
-            if sctn_activation == "BINARY": fig_text_str += f", thr: {sctn_threshold_pulse}"
-            if sctn_activation == "IDENTITY": fig_text_str += f", id_c: {sctn_identity_const}"
-            plt.figtext(0.5, 0.01, fig_text_str, wrap=True, horizontalalignment='center', fontsize=8)
-            plt.tight_layout(rect=[0, 0.05, 1, 1])
+
+            plt.subplot(3, 1, 2)
+            plt.plot(sim.trange(), exp_x_ideal, label="exp(x(t)) (Ideal)", color='k', lw=2)
+            plt.plot(sim.trange(), sim.data[p_sctn_ens_represented_exp_x], label="Decoded from sctn_ensemble_exp_x",
+                     color='r')
+            plt.title("Representation of exp(x(t)) by SCTN Ensemble")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Value of exp(x)")
+            plt.legend()
+            plt.grid(True)
+
+            plt.subplot(3, 1, 3)
+            plt.plot(sim.trange(), sin_exp_x_ideal, label="sin(exp(x(t))) (Ideal)", color='k', lw=2)
+            plt.plot(sim.trange(), sim.data[p_final_decoded_output], label="Final Decoded Output (from SCTN)",
+                     color='b')
+            plt.title("Final Decoded Output: sin(exp(x(t)))")
+            plt.xlabel("Time (s)")
+            plt.ylabel("Value of sin(exp(x))")
+            plt.legend()
+            plt.grid(True)
+
+            plt.tight_layout()
             plt.show()
+
+            # Optional: Plot spike raster for SCTN neurons
+            # from nengo.utils.matplotlib import rasterplot
+            # if sim.data[p_sctn_spikes] is not None and np.any(sim.data[p_sctn_spikes]):
+            #     plt.figure(figsize=(12,6))
+            #     rasterplot(sim.trange(), sim.data[p_sctn_spikes])
+            #     plt.title("Spike Raster of SCTN Ensemble (representing exp(x))")
+            #     plt.xlabel("Time (s)")
+            #     plt.ylabel("Neuron Index")
+            #     plt.show()
+            # else:
+            #     print("No spikes recorded from SCTN ensemble, or probe was not active.")
+
 
     except ValidationError as e:
         build_time = time.time() - start_time
-        print(f"!!! Nengo ValidationError during build (time: {build_time:.2f}s) with custom gain_bias !!!")
+        print(f"!!! Nengo ValidationError during build (time: {build_time:.2f}s) !!!")
         print(f"{type(e).__name__}: {e}")
     except Exception as e:
         build_time = time.time() - start_time
-        print(f"--- An error occurred (time: {build_time:.2f}s) with custom gain_bias ---")
+        print(f"--- An error occurred (time: {build_time:.2f}s) ---")
         print(f"{type(e).__name__}: {e}")
         import traceback
 
         traceback.print_exc()
 
-    print("\n--- Test Script Finished ---")
-    print("What to check with CUSTOM gain_bias (and longer sim times for rate calcs):")
-    print("1. Build Time: Expect it to be significantly longer now.")
-    print("2. Warnings from gain_bias: Do they change? Does brentq succeed more often if ranges are better?")
-    print("3. Response Curves Plot (especially for IDENTITY):")
-    print("   - Does the F-I curve characterization improve, leading to more meaningful curves?")
-    print("   - Are intercepts and max_rates now achieved more accurately?")
+    print("\n--- Function Computation Script Finished ---")
