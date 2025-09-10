@@ -59,8 +59,6 @@ Benchmarking: wall-time speedup, energy per step, accuracy vs. software
 
 
 
-(Adjust names to match your actual layout.)
-
 Troubleshooting
 
 ImportError: No module named 'nengo'
