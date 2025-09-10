@@ -39,9 +39,12 @@ pip install --upgrade pip
 
 
 #Minimal dependencies:
+
 pip install nengo numpy matplotlib jupyter
+
 #or, if present:
-#pip install -r requirements.txt
+
+pip install -r requirements.txt
 
 # Quickstart (Notebook)
 jupyter notebook oscillator_sctn.ipynb
