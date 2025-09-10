@@ -47,43 +47,6 @@ pip install nengo numpy matplotlib jupyter
 jupyter notebook oscillator_sctn.ipynb
 
 
-In the notebook, run cells top-to-bottom:
-
-Imports & Config
-
-FPGA Hooks (Classes) – simulator/network/ensemble wrappers
-
-Simulation Parameters – n_neurons, omega, T, etc.
-
-Model Definition – two ensembles (z1, z2) + recurrent transform
-
-Run & Probes – simulate and collect signals
-
-Plots – time-series of 
-𝑥
-1
-(
-𝑡
-)
-,
-𝑥
-2
-(
-𝑡
-)
-x
-1
-	​
-
-(t),x
-2
-	​
-
-(t) (and optional phase portrait)
-
-
-
-
 # FPGA Offload (Road to Hardware)
 
 The repository includes hand-off points (e.g., neuron state update / integration) where you can later redirect computation to an FPGA accelerator. Current behavior is software/“emulation”; next steps usually include:
