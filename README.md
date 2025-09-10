@@ -28,16 +28,20 @@ Reproducible demo: One notebook (oscillator_sctn.ipynb) that builds, runs, and v
 Recommended: Python 3.8+ in a virtual environment.
 
 git clone https://github.com/EtayKandil/nengo-sctn_integration.git
+
 cd nengo-sctn_integration
 
 python3 -m venv .venv
+
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
+
 pip install --upgrade pip
 
-# Minimal dependencies:
+
+#Minimal dependencies:
 pip install nengo numpy matplotlib jupyter
-# or, if present:
-# pip install -r requirements.txt
+#or, if present:
+#pip install -r requirements.txt
 
 # Quickstart (Notebook)
 jupyter notebook oscillator_sctn.ipynb
