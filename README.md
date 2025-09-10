@@ -23,55 +23,6 @@ FPGA readiness: Abstractions (simulator/network/ensemble wrappers) to route heav
 
 Reproducible demo: One notebook (oscillator_sctn.ipynb) that builds, runs, and visualizes the model.
 
-# Installation
-
-Recommended: Python 3.8+ in a virtual environment.
-
-git clone https://github.com/EtayKandil/nengo-sctn_integration.git
-
-cd nengo-sctn_integration
-
-python3 -m venv .venv
-
-source .venv/bin/activate    # Windows: .venv\Scripts\activate
-
-pip install --upgrade pip
-
-
-#Minimal dependencies:
-
-pip install nengo numpy matplotlib jupyter
-
-#or, if present:
-
-pip install -r requirements.txt
-
-# Quickstart (Notebook)
-jupyter notebook oscillator_sctn.ipynb
-
-
-# FPGA Offload (Road to Hardware)
-
-The repository includes hand-off points (e.g., neuron state update / integration) where you can later redirect computation to an FPGA accelerator. Current behavior is software/“emulation”; next steps usually include:
-
-RTL/driver integration (e.g., AXI-Lite/PCIe as applicable)
-
-End-to-end data path for spike/state updates
-
-Benchmarking: wall-time speedup, energy per step, accuracy vs. software
-
-
-
-Troubleshooting
-
-ImportError: No module named 'nengo'
-Ensure you installed into the active venv: pip install nengo and check which python / which pip.
-
-Plots don’t appear
-Run all cells, verify variable names used in plotting match the notebook’s probes/arrays.
-
-Python version mismatch
-Verify with python --version. On Windows, WSL/Ubuntu or a clean Python 3.8+ often simplifies setup.
 
 
 
